@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.smallrye.reactive</groupId>
     <artifactId>smallrye-reactive-messaging</artifactId>
-    <version>3.15.0-SNAPSHOT</version>
+    <version>4.4.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>smallrye-reactive-messaging-pulsar</artifactId>
@@ -14,7 +14,7 @@
   <name>SmallRye Reactive Messaging : Connector :: Pulsar</name>
 
   <properties>
-    <pulsar.version>2.9.1</pulsar.version>
+    <pulsar.version>2.10.2</pulsar.version>
   </properties>
 
   <dependencies>
@@ -26,8 +26,14 @@
 
     <dependency>
       <groupId>org.apache.pulsar</groupId>
-      <artifactId>pulsar-client</artifactId>
+      <artifactId>pulsar-client-original</artifactId>
       <version>${pulsar.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.pulsar</groupId>
+      <artifactId>pulsar-client-admin</artifactId>
+      <version>${pulsar.version}</version>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
@@ -83,8 +89,8 @@
     </dependency>
     <dependency>
       <groupId>io.smallrye.reactive</groupId>
-      <artifactId>reactive-streams-junit5-tck</artifactId>
-      <version>${mutiny.version}</version>
+      <artifactId>mutiny-zero-reactive-streams-junit5-tck</artifactId>
+      <version>${mutiny-zero.version}</version>
       <scope>test</scope>
       <classifier>tests</classifier>
     </dependency>

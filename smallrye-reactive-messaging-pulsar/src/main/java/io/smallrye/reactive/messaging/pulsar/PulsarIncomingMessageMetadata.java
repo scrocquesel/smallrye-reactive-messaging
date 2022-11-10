@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
 
 class PulsarIncomingMessageMetadata implements PulsarMessageMetadata {
 
@@ -11,6 +12,10 @@ class PulsarIncomingMessageMetadata implements PulsarMessageMetadata {
 
     PulsarIncomingMessageMetadata(Message<?> message) {
         this.message = message;
+    }
+
+    public MessageId getMessageId() {
+        return message.getMessageId();
     }
 
     @Override

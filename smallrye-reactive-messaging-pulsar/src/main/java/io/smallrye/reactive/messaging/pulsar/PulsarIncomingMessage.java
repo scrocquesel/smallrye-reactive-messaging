@@ -1,30 +1,84 @@
 package io.smallrye.reactive.messaging.pulsar;
 
+import static io.smallrye.reactive.messaging.providers.locals.ContextAwareMessage.captureContextMetadata;
 import static io.smallrye.reactive.messaging.pulsar.i18n.PulsarMessages.msg;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import org.eclipse.microprofile.reactive.messaging.Message;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 
-class PulsarIncomingMessage<T> implements Message<T> {
+public class PulsarIncomingMessage<T> implements PulsarMessage<T>, PulsarIdMessage<T> {
     private final org.apache.pulsar.client.api.Message<T> delegate;
-    private final Acknowledgement acknowledgement;
     private final Metadata metadata;
 
-    public PulsarIncomingMessage(org.apache.pulsar.client.api.Message<T> message,
-            Acknowledgement acknowledgement) {
+    private final PulsarAckHandler ackHandler;
+
+    private final PulsarFailureHandler nackHandler;
+
+    public PulsarIncomingMessage(Message<T> message, PulsarAckHandler ackHandler, PulsarFailureHandler nackHandler) {
         this.delegate = Objects.requireNonNull(message, msg.isRequired("message"));
-        this.acknowledgement = Objects.requireNonNull(acknowledgement, msg.isRequired("consumer"));
-        this.metadata = Metadata.of(new PulsarIncomingMessageMetadata(message));
+        this.ackHandler = Objects.requireNonNull(ackHandler, msg.isRequired("ack"));
+        this.nackHandler = Objects.requireNonNull(nackHandler, msg.isRequired("nack"));
+        this.metadata = captureContextMetadata(new PulsarIncomingMessageMetadata(message));
+    }
+
+    @Override
+    public MessageId getMessageId() {
+        return delegate.getMessageId();
     }
 
     @Override
     public T getPayload() {
         return delegate.getValue();
+    }
+
+    @Override
+    public String getKey() {
+        return delegate.getKey();
+    }
+
+    @Override
+    public byte[] getKeyBytes() {
+        return delegate.getKeyBytes();
+    }
+
+    @Override
+    public boolean hasKey() {
+        return delegate.hasKey();
+    }
+
+    @Override
+    public byte[] getOrderingKey() {
+        return delegate.getOrderingKey();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return delegate.getProperties();
+    }
+
+    @Override
+    public long getEventTime() {
+        return delegate.getEventTime();
+    }
+
+    @Override
+    public long getSequenceId() {
+        return delegate.getSequenceId();
+    }
+
+    public long getPublishTime() {
+        return delegate.getPublishTime();
+    }
+
+    public org.apache.pulsar.client.api.Message<T> unwrap() {
+        return delegate;
     }
 
     @Override
@@ -34,7 +88,7 @@ class PulsarIncomingMessage<T> implements Message<T> {
 
     @Override
     public CompletionStage<Void> ack() {
-        return acknowledgement.ack(delegate);
+        return ackHandler.handle(this).subscribeAsCompletionStage();
     }
 
     @Override
@@ -43,8 +97,8 @@ class PulsarIncomingMessage<T> implements Message<T> {
     }
 
     @Override
-    public CompletionStage<Void> nack(Throwable reason) {
-        return acknowledgement.nack(delegate, reason);
+    public CompletionStage<Void> nack(Throwable reason, Metadata metadata) {
+        return nackHandler.handle(this, reason, metadata).subscribeAsCompletionStage();
     }
 
     @Override
@@ -68,4 +122,5 @@ class PulsarIncomingMessage<T> implements Message<T> {
     public int hashCode() {
         return Objects.hash(delegate);
     }
+
 }

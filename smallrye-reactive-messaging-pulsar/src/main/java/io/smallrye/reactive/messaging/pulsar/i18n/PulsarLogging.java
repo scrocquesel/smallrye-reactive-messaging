@@ -40,4 +40,39 @@ public interface PulsarLogging extends BasicLogger {
     @Message(id = 19010, value = "No `subscription-name` set in the configuration, generate a random name: %s")
     void noSubscriptionName(String randomName);
 
+    @LogMessage(level = Logger.Level.INFO)
+    @Message(id = 19011, value = "Created consumer for channel `%s` with configuration: %s")
+    void createdConsumerWithConfig(String channel, Object consumerConf);
+
+    @LogMessage(level = Logger.Level.INFO)
+    @Message(id = 19012, value = "Created producer for channel `%s` with configuration: %s")
+    void createdProducerWithConfig(String channel, Object producerConf);
+
+    @LogMessage(level = Logger.Level.WARN)
+    @Message(id = 19013, value = "A message sent to channel `%s` has been nacked, fail-stop")
+    void messageNackedFailStop(String channel);
+
+    @LogMessage(level = Logger.Level.WARN)
+    @Message(id = 19014, value = "A message sent to channel `%s` has been nacked, ignored failure is: %s.")
+    void messageNackedIgnored(String channel, String reason);
+
+    @LogMessage(level = Logger.Level.DEBUG)
+    @Message(id = 19015, value = "The full ignored failure is")
+    void messageNackedFullIgnored(@Cause Throwable t);
+
+    @LogMessage(level = Logger.Level.INFO)
+    @Message(id = 19016, value = "The consumer for channel `%s` failed to receive message")
+    void failedToReceiveFromConsumer(String channel, @Cause Throwable t);
+
+    @LogMessage(level = Logger.Level.INFO)
+    @Message(id = 19017, value = "The consumer for channel `%s` reached end of topic")
+    void consumerReachedEndOfTopic(String channel);
+
+    @LogMessage(level = Logger.Level.DEBUG)
+    @Message(id = 19018, value = "The client for channel `%s` has been closed")
+    void clientClosed(String channel, @Cause Throwable t);
+
+    @LogMessage(level = Logger.Level.WARN)
+    @Message(id = 19019, value = "Unable to parse redelivery backoff config `%s` for channel `%s`")
+    void unableToParseRedeliveryBackoff(String redeliveryBackoff, String channel);
 }

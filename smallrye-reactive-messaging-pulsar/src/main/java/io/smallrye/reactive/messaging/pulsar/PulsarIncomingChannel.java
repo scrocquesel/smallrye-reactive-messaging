@@ -2,84 +2,151 @@ package io.smallrye.reactive.messaging.pulsar;
 
 import static io.smallrye.reactive.messaging.pulsar.i18n.PulsarLogging.log;
 
-import java.util.Optional;
+import java.util.Arrays;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
+import org.apache.pulsar.client.api.BatchReceivePolicy;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.DeadLetterPolicy;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.RedeliveryBackoff;
 import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.impl.MultiplierRedeliveryBackoff;
+import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.eclipse.microprofile.reactive.messaging.Message;
-import org.eclipse.microprofile.reactive.streams.operators.PublisherBuilder;
-import org.eclipse.microprofile.reactive.streams.operators.ReactiveStreams;
 
 import io.smallrye.mutiny.Multi;
+import io.smallrye.reactive.messaging.providers.locals.ContextOperator;
+import io.vertx.core.impl.EventLoopContext;
+import io.vertx.core.impl.VertxInternal;
 import io.vertx.mutiny.core.Vertx;
 
 public class PulsarIncomingChannel<T> {
 
     private final Consumer<T> consumer;
-    private final PublisherBuilder<Message<?>> publisher;
+    private final Flow.Publisher<? extends Message<?>> publisher;
     private final String channel;
+    private final PulsarAckHandler ackHandler;
+    private final PulsarFailureHandler failureHandler;
+    private final EventLoopContext context;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public PulsarIncomingChannel(PulsarClient client, Vertx vertx, Schema<T> schema,
-            PulsarConnectorIncomingConfiguration ic) throws PulsarClientException {
+            PulsarAckHandler.Factory ackHandlerFactory,
+            PulsarFailureHandler.Factory failureHandlerFactory,
+            PulsarConnectorIncomingConfiguration ic,
+            ConfigResolver configResolver) throws PulsarClientException {
         this.channel = ic.getChannel();
-        String subscriptionName = ic.getSubscriptionName().orElseGet(() -> {
+        ConsumerBuilder<T> builder = client.newConsumer(schema);
+        ConsumerConfigurationData<?> conf = configResolver.getConsumerConf(ic);
+        if (conf.getSubscriptionName() == null) {
             String s = UUID.randomUUID().toString();
             log.noSubscriptionName(s);
-            return s;
-        });
-        // TODO we need a hell of a lot more configuration here
-        ConsumerBuilder<T> builder = client.newConsumer(schema)
-                .consumerName(channel)
-                .topic(ic.getTopic().orElse(channel))
-                .subscriptionName(subscriptionName)
-                //                .isAckReceiptEnabled(true) // TODO ogu add config option for this, with this ack
-                //                 receipts are async, therefore acking every message and waiting for the receipt
-                //                 makes the consumption is very slow.
-                .subscriptionType(ic.getSubscriptionType().orElse(SubscriptionType.Exclusive))
-                .acknowledgmentGroupTime(ic.getAckGroupTime(), TimeUnit.MILLISECONDS);
-        if (ic.getAckTimeout().isPresent()) {
-            builder.ackTimeout(ic.getAckTimeout().get(), TimeUnit.MILLISECONDS);
+            conf.setSubscriptionName(s);
         }
-        Optional<String> deadLetterTopic = ic.getDeadLetterPolicyDeadLetterTopic();
-        Optional<String> retryLetterTopic = ic.getDeadLetterPolicyRetryLetterTopic();
-        if (deadLetterTopic.isPresent() || retryLetterTopic.isPresent()) {
-            Optional<Integer> deadLetterPolicyMaxRedeliverCount = ic.getDeadLetterPolicyMaxRedeliverCount();
-            DeadLetterPolicy.DeadLetterPolicyBuilder deadLetterPolicyBuilder = DeadLetterPolicy.builder();
-            deadLetterPolicyMaxRedeliverCount.ifPresent(deadLetterPolicyBuilder::maxRedeliverCount);
-            deadLetterTopic.ifPresent(deadLetterPolicyBuilder::deadLetterTopic);
-            retryLetterTopic.ifPresent(deadLetterPolicyBuilder::retryLetterTopic);
-            builder.deadLetterPolicy(deadLetterPolicyBuilder.build());
+        if (hasTopicConfig(conf)) {
+            conf.setTopicNames(Arrays.stream(ic.getTopic().orElse(channel).split(",")).collect(Collectors.toSet()));
+        }
+        if (conf.getConsumerName() == null) {
+            conf.setConsumerName(channel);
+        }
+        builder.loadConf(configResolver.configToMap(conf));
+        ic.getDeadLetterPolicyMaxRedeliverCount().ifPresent(i -> builder.deadLetterPolicy(getDeadLetterPolicy(ic, i)));
+        ic.getNegativeAckRedeliveryBackoff().ifPresent(s -> builder.negativeAckRedeliveryBackoff(parseBackoff(s)));
+        ic.getAckTimeoutRedeliveryBackoff().ifPresent(s -> builder.ackTimeoutRedeliveryBackoff(parseBackoff(s)));
+        if (conf.getConsumerEventListener() != null) {
+            builder.consumerEventListener(conf.getConsumerEventListener());
+        }
+        if (conf.getPayloadProcessor() != null) {
+            builder.messagePayloadProcessor(conf.getPayloadProcessor());
+        }
+        if (conf.getKeySharedPolicy() != null) {
+            builder.keySharedPolicy(conf.getKeySharedPolicy());
+        }
+        if (conf.getCryptoKeyReader() != null) {
+            builder.cryptoKeyReader(conf.getCryptoKeyReader());
+        }
+        if (conf.getMessageCrypto() != null) {
+            builder.messageCrypto(conf.getMessageCrypto());
+        }
+        if (ic.getBatchReceive() && conf.getBatchReceivePolicy() == null) {
+            builder.batchReceivePolicy(BatchReceivePolicy.DEFAULT_POLICY);
         }
 
-        this.consumer = builder
-                .subscribe();
-        this.publisher = ReactiveStreams.fromPublisher(Multi.createFrom().<Object, Message<?>> generator(() -> null,
-                (o, emitter) -> {
-                    // TODO ogu should we run this on the Vert.x thread as well ? Otherwise this will be called on request thread.
-                    consumer.receiveAsync()
-                            .whenComplete((m, t) -> {
-                                // Callback received on pulsar-client-internal thread
-                                if (t == null) {
-                                    emitter.emit(
-                                            new PulsarIncomingMessage<>(m, new ConsumerAcknowledgement(consumer)));
-                                } else {
-                                    emitter.fail(t);
-                                }
-                            });
-                    return null;
-                }).emitOn(vertx.nettyEventLoopGroup())); // TODO ogu should we create a Vert.x context for each channel ?
+        this.consumer = builder.subscribe();
+        log.createdConsumerWithConfig(channel, conf);
+        this.ackHandler = ackHandlerFactory.create(consumer, ic);
+        this.failureHandler = failureHandlerFactory.create(consumer, ic);
+        this.context = ((VertxInternal) vertx.getDelegate()).createEventLoopContext();
+        Multi<PulsarIncomingMessage<T>> receiveMulti;
+        if (!ic.getBatchReceive()) {
+            receiveMulti = Multi.createBy().repeating().completionStage(consumer::receiveAsync)
+                    .until(m -> closed.get())
+                    .emitOn(command -> context.runOnContext(event -> command.run()))
+                    .onItem().transform(message -> new PulsarIncomingMessage<>(message, ackHandler, failureHandler))
+                    .onFailure(throwable -> isEndOfStream(client, throwable)).recoverWithCompletion()
+                    .onFailure().invoke(failure -> log.failedToReceiveFromConsumer(channel, failure));
+        } else {
+            receiveMulti = Multi.createBy().repeating().completionStage(consumer::batchReceiveAsync)
+                    .until(m -> closed.get())
+                    .emitOn(command -> context.runOnContext(event -> command.run()))
+                    .onItem().transformToMultiAndConcatenate(messages -> Multi.createFrom().iterable(messages)
+                            .map(message -> new PulsarIncomingMessage<>(message, ackHandler, failureHandler)))
+                    .onFailure(throwable -> isEndOfStream(client, throwable)).recoverWithCompletion()
+                    .onFailure().invoke(failure -> log.failedToReceiveFromConsumer(channel, failure));
+        }
+        this.publisher = receiveMulti
+                .emitOn(context.nettyEventLoop())
+                .plug(ContextOperator::apply);
     }
 
-    public PublisherBuilder<Message<?>> getPublisher() {
+    private boolean isEndOfStream(PulsarClient client, Throwable throwable) {
+        if (closed.get()) {
+            return true;
+        } else if (consumer.hasReachedEndOfTopic()) {
+            log.consumerReachedEndOfTopic(channel);
+            return true;
+        } else if (client.isClosed()) {
+            log.clientClosed(channel, throwable);
+            return true;
+        }
+        return false;
+    }
+
+    private static DeadLetterPolicy getDeadLetterPolicy(PulsarConnectorIncomingConfiguration ic, Integer redeliverCount) {
+        return DeadLetterPolicy.builder()
+                .maxRedeliverCount(redeliverCount)
+                .deadLetterTopic(ic.getDeadLetterPolicyDeadLetterTopic().orElse(null))
+                .retryLetterTopic(ic.getDeadLetterPolicyRetryLetterTopic().orElse(null))
+                .initialSubscriptionName(ic.getDeadLetterPolicyInitialSubscriptionName().orElse(null))
+                .build();
+    }
+
+    private RedeliveryBackoff parseBackoff(String backoffString) {
+        String[] strings = backoffString.split(",");
+        try {
+            return MultiplierRedeliveryBackoff.builder()
+                    .minDelayMs(Long.parseLong(strings[0]))
+                    .maxDelayMs(Long.parseLong(strings[1]))
+                    .multiplier(Double.parseDouble(strings[2]))
+                    .build();
+        } catch (Exception e) {
+            log.unableToParseRedeliveryBackoff(backoffString, this.channel);
+            return null;
+        }
+    }
+
+    private static boolean hasTopicConfig(ConsumerConfigurationData<?> conf) {
+        return conf.getTopicsPattern() != null
+                || (conf.getTopicNames() != null && conf.getTopicNames().isEmpty());
+    }
+
+    public Flow.Publisher<? extends Message<?>> getPublisher() {
         return publisher;
     }
 
@@ -92,6 +159,7 @@ public class PulsarIncomingChannel<T> {
     }
 
     public void close() {
+        closed.set(true);
         try {
             consumer.close();
         } catch (PulsarClientException e) {
@@ -99,23 +167,4 @@ public class PulsarIncomingChannel<T> {
         }
     }
 
-    static class ConsumerAcknowledgement implements Acknowledgement {
-
-        private final Consumer<?> consumer;
-
-        ConsumerAcknowledgement(Consumer<?> consumer) {
-            this.consumer = consumer;
-        }
-
-        @Override
-        public CompletionStage<Void> ack(org.apache.pulsar.client.api.Message<?> message) {
-            return consumer.acknowledgeAsync(message);
-        }
-
-        @Override
-        public CompletionStage<Void> nack(org.apache.pulsar.client.api.Message<?> message, Throwable reason) {
-            consumer.negativeAcknowledge(message);
-            return CompletableFuture.completedFuture(null);
-        }
-    }
 }

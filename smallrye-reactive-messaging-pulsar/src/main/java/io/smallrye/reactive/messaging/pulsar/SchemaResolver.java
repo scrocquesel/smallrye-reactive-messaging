@@ -1,18 +1,23 @@
 package io.smallrye.reactive.messaging.pulsar;
 
-import javax.enterprise.inject.Instance;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
 
-import io.smallrye.common.annotation.Identifier;
+import io.smallrye.reactive.messaging.providers.helpers.CDIUtils;
 
+@ApplicationScoped
 public class SchemaResolver {
 
     private final Instance<Schema<?>> schemas;
 
-    public SchemaResolver(Instance<Schema<?>> schemas) {
+    @Inject
+    public SchemaResolver(@Any Instance<Schema<?>> schemas) {
         this.schemas = schemas;
     }
 
@@ -30,7 +35,7 @@ public class SchemaResolver {
             String schemaName = configuration.getSchema().get();
             return Schema.getSchema(SchemaInfo.builder().type(SchemaType.valueOf(schemaName)).build());
         } else {
-            Instance<Schema<?>> schema = this.schemas.select(Identifier.Literal.of(configuration.getChannel()));
+            Instance<Schema<?>> schema = CDIUtils.getInstanceById(this.schemas, configuration.getChannel());
             if (schema.isResolvable()) {
                 return schema.get();
             }
