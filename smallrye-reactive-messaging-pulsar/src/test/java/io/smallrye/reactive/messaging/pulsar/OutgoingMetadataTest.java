@@ -6,7 +6,6 @@ import static org.awaitility.Awaitility.await;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Flow;
 
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
@@ -28,7 +27,7 @@ public class OutgoingMetadataTest extends PulsarBaseTest {
                 .with("maxPendingMessagesAcrossPartitions", 10));
         PulsarOutgoingChannel<String> channel = new PulsarOutgoingChannel<>(client, Schema.STRING, oc, configResolver);
 
-        Flow.Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
+        Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
 
         receive(client.newConsumer(Schema.STRING)
                 .consumerName("test-consumer")
@@ -43,7 +42,7 @@ public class OutgoingMetadataTest extends PulsarBaseTest {
                         .withEventTime(System.currentTimeMillis())
                         .withProperties(Map.of("my-key", "my-value"))
                         .build()))
-                .subscribe((Flow.Subscriber<? super Message<String>>) subscriber);
+                .subscribe((Subscriber<? super Message<String>>) subscriber);
 
         await().until(() -> messages.size() == 5);
         assertThat(messages).allSatisfy(m -> {

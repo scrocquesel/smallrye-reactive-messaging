@@ -1,6 +1,6 @@
 package io.smallrye.reactive.messaging.pulsar.ack;
 
-import jakarta.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.ApplicationScoped;
 
 import org.apache.pulsar.client.api.Consumer;
 

@@ -2,7 +2,7 @@ package io.smallrye.reactive.messaging.pulsar.fault;
 
 import static io.smallrye.reactive.messaging.pulsar.i18n.PulsarLogging.log;
 
-import jakarta.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.ApplicationScoped;
 
 import org.apache.pulsar.client.api.Consumer;
 import org.eclipse.microprofile.reactive.messaging.Metadata;

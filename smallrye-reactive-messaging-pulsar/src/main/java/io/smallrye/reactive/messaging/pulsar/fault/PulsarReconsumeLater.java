@@ -6,7 +6,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
-import jakarta.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.ApplicationScoped;
 
 import org.apache.pulsar.client.api.Consumer;
 import org.eclipse.microprofile.reactive.messaging.Metadata;

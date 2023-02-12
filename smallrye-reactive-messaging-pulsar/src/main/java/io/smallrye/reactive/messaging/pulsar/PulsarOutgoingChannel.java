@@ -4,7 +4,6 @@ import static io.smallrye.reactive.messaging.pulsar.i18n.PulsarLogging.log;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Flow;
 
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
@@ -24,7 +23,7 @@ public class PulsarOutgoingChannel<T> {
 
     private final Producer<T> producer;
     private final PulsarSenderProcessor processor;
-    private final Flow.Subscriber<? extends Message<?>> subscriber;
+    private final Subscriber<? extends Message<?>> subscriber;
     private final String channel;
 
     public PulsarOutgoingChannel(PulsarClient client, Schema<T> schema, PulsarConnectorOutgoingConfiguration oc,
@@ -115,7 +114,7 @@ public class PulsarOutgoingChannel<T> {
         }
     }
 
-    public Flow.Subscriber<? extends Message<?>> getSubscriber() {
+    public Subscriber<? extends Message<?>> getSubscriber() {
         return subscriber;
     }
 

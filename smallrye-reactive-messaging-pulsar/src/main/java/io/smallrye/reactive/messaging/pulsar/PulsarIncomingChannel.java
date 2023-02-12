@@ -4,7 +4,6 @@ import static io.smallrye.reactive.messaging.pulsar.i18n.PulsarLogging.log;
 
 import java.util.Arrays;
 import java.util.UUID;
-import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -19,6 +18,7 @@ import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.MultiplierRedeliveryBackoff;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.eclipse.microprofile.reactive.messaging.Message;
+import org.reactivestreams.Publisher;
 
 import io.smallrye.mutiny.Multi;
 import io.smallrye.reactive.messaging.providers.locals.ContextOperator;
@@ -29,7 +29,7 @@ import io.vertx.mutiny.core.Vertx;
 public class PulsarIncomingChannel<T> {
 
     private final Consumer<T> consumer;
-    private final Flow.Publisher<? extends Message<?>> publisher;
+    private final Publisher<? extends Message<?>> publisher;
     private final String channel;
     private final PulsarAckHandler ackHandler;
     private final PulsarFailureHandler failureHandler;
@@ -146,7 +146,7 @@ public class PulsarIncomingChannel<T> {
                 || (conf.getTopicNames() != null && conf.getTopicNames().isEmpty());
     }
 
-    public Flow.Publisher<? extends Message<?>> getPublisher() {
+    public Publisher<? extends Message<?>> getPublisher() {
         return publisher;
     }
 

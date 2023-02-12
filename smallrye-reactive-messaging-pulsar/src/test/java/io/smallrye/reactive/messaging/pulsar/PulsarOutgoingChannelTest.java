@@ -4,7 +4,6 @@ import static org.awaitility.Awaitility.await;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Flow;
 
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
@@ -28,7 +27,7 @@ public class PulsarOutgoingChannelTest extends PulsarBaseTest {
                 .with("maxPendingMessagesAcrossPartitions", 10));
         PulsarOutgoingChannel<String> channel = new PulsarOutgoingChannel<>(client, Schema.STRING, oc, configResolver);
 
-        Flow.Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
+        Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
 
         receive(client.newConsumer(Schema.STRING)
                 .consumerName("test-consumer")
@@ -38,7 +37,7 @@ public class PulsarOutgoingChannelTest extends PulsarBaseTest {
 
         Multi.createFrom().range(0, NUMBER_OF_MESSAGES)
                 .map(i -> Message.of("v-" + i))
-                .subscribe((Flow.Subscriber<? super Message<String>>) subscriber);
+                .subscribe((Subscriber<? super Message<String>>) subscriber);
 
         await().until(() -> messages.size() == NUMBER_OF_MESSAGES);
     }
@@ -52,7 +51,7 @@ public class PulsarOutgoingChannelTest extends PulsarBaseTest {
         PulsarOutgoingChannel<Person> channel = new PulsarOutgoingChannel<>(client, Schema.JSON(Person.class), oc,
                 configResolver);
 
-        Flow.Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
+        Subscriber<? extends Message<?>> subscriber = channel.getSubscriber();
 
         receive(client.newConsumer(Schema.JSON(Person.class))
                 .consumerName("test-consumer")
@@ -62,7 +61,7 @@ public class PulsarOutgoingChannelTest extends PulsarBaseTest {
 
         Multi.createFrom().range(0, NUMBER_OF_MESSAGES)
                 .map(i -> Message.of(new Person("name-" + i, i)))
-                .subscribe((Flow.Subscriber<? super Message<Person>>) subscriber);
+                .subscribe((Subscriber<? super Message<Person>>) subscriber);
 
         await().until(() -> messages.size() == NUMBER_OF_MESSAGES);
     }

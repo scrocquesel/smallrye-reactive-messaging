@@ -7,18 +7,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Flow;
 import java.util.function.Function;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.Priority;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.BeforeDestroyed;
-import jakarta.enterprise.event.Observes;
-import jakarta.enterprise.event.Reception;
-import jakarta.enterprise.inject.Any;
-import jakarta.enterprise.inject.Instance;
-import jakarta.inject.Inject;
+import javax.annotation.PostConstruct;
+import javax.annotation.Priority;
+import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.context.BeforeDestroyed;
+import javax.enterprise.event.Observes;
+import javax.enterprise.event.Reception;
+import javax.enterprise.inject.Any;
+import javax.enterprise.inject.Instance;
+import javax.inject.Inject;
 
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -92,7 +91,7 @@ public class PulsarConnector implements InboundConnector, OutboundConnector, Hea
     }
 
     @Override
-    public Flow.Publisher<? extends Message<?>> getPublisher(Config config) {
+    public Publisher<? extends Message<?>> getPublisher(Config config) {
         PulsarConnectorIncomingConfiguration ic = new PulsarConnectorIncomingConfiguration(config);
 
         PulsarClient client = clients.computeIfAbsent(clientHash(ic), new PulsarClientCreator(configResolver, vertx, ic));
@@ -110,7 +109,7 @@ public class PulsarConnector implements InboundConnector, OutboundConnector, Hea
     }
 
     @Override
-    public Flow.Subscriber<? extends Message<?>> getSubscriber(Config config) {
+    public Subscriber<? extends Message<?>> getSubscriber(Config config) {
         PulsarConnectorOutgoingConfiguration oc = new PulsarConnectorOutgoingConfiguration(config);
 
         PulsarClient client = clients.computeIfAbsent(clientHash(oc), new PulsarClientCreator(configResolver, vertx, oc));
