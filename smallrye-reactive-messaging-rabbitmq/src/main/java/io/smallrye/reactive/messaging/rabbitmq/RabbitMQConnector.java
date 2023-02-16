@@ -38,6 +38,7 @@ import io.opentelemetry.instrumentation.api.instrumenter.InstrumenterBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.messaging.MessagingAttributesExtractor;
 import io.opentelemetry.instrumentation.api.instrumenter.messaging.MessagingAttributesGetter;
 import io.opentelemetry.instrumentation.api.instrumenter.messaging.MessagingSpanNameExtractor;
+import io.smallrye.common.annotation.Identifier;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.tuples.Tuple2;
@@ -51,10 +52,7 @@ import io.smallrye.reactive.messaging.providers.helpers.MultiUtils;
 import io.smallrye.reactive.messaging.rabbitmq.ack.RabbitMQAck;
 import io.smallrye.reactive.messaging.rabbitmq.ack.RabbitMQAckHandler;
 import io.smallrye.reactive.messaging.rabbitmq.ack.RabbitMQAutoAck;
-import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQAccept;
-import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQFailStop;
 import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQFailureHandler;
-import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQReject;
 import io.smallrye.reactive.messaging.rabbitmq.tracing.RabbitMQTrace;
 import io.smallrye.reactive.messaging.rabbitmq.tracing.RabbitMQTraceAttributesExtractor;
 import io.smallrye.reactive.messaging.rabbitmq.tracing.RabbitMQTraceTextMapGetter;
@@ -178,6 +176,10 @@ public class RabbitMQConnector implements InboundConnector, OutboundConnector, H
     Instance<CredentialsProvider> credentialsProviders;
 
     private Instrumenter<RabbitMQTrace, Void> instrumenter;
+
+    @Inject
+    @Any
+    Instance<RabbitMQFailureHandler.Factory> failureHandlerFactories;
 
     RabbitMQConnector() {
         // used for proxies
@@ -557,18 +559,13 @@ public class RabbitMQConnector implements InboundConnector, OutboundConnector, H
 
     private RabbitMQFailureHandler createFailureHandler(RabbitMQConnectorIncomingConfiguration config) {
         String strategy = config.getFailureStrategy();
-        RabbitMQFailureHandler.Strategy actualStrategy = RabbitMQFailureHandler.Strategy.from(strategy);
-        switch (actualStrategy) {
-            case FAIL:
-                return new RabbitMQFailStop(this, config.getChannel());
-            case ACCEPT:
-                return new RabbitMQAccept(config.getChannel());
-            case REJECT:
-                return new RabbitMQReject(config.getChannel());
-            default:
-                throw ex.illegalArgumentInvalidFailureStrategy(strategy);
+        Instance<RabbitMQFailureHandler.Factory> failureHandlerFactory = failureHandlerFactories
+                .select(Identifier.Literal.of(strategy));
+        if (failureHandlerFactory.isResolvable()) {
+            return failureHandlerFactory.get().create(config, this);
+        } else {
+            throw ex.illegalArgumentInvalidFailureStrategy(strategy);
         }
-
     }
 
     private RabbitMQAckHandler createAckHandler(RabbitMQConnectorIncomingConfiguration ic) {
