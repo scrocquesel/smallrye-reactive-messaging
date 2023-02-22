@@ -10,6 +10,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
+import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQReconsumeLater;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
@@ -102,6 +103,21 @@ public class LocalPropagationAckTest extends WeldTestBase {
         produceIntegers();
 
         await().until(() -> bean.getResults().size() >= 5);
+        assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5);
+    }
+
+    @Test
+    public void testIncomingChannelWithNackOnMessageContextReconsume() {
+        addBeans(RabbitMQReconsumeLater.Factory.class);
+        IncomingChannelWithAckOnMessageContext bean = runApplication(dataconfig()
+                .with("mp.messaging.incoming.data.failure-strategy", "reconsume-later"),
+                IncomingChannelWithAckOnMessageContext.class);
+        bean.setMapper(i -> {
+            throw new RuntimeException("boom");
+        });
+        produceIntegers();
+
+        await().until(() -> bean.getResults().size() >= 10);
         assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5);
     }
 

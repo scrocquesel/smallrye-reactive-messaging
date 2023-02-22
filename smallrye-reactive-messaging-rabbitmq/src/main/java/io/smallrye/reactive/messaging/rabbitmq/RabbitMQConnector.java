@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Flow;
 import java.util.stream.Collectors;
 
+import io.smallrye.reactive.messaging.providers.helpers.CDIUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -559,8 +560,7 @@ public class RabbitMQConnector implements InboundConnector, OutboundConnector, H
 
     private RabbitMQFailureHandler createFailureHandler(RabbitMQConnectorIncomingConfiguration config) {
         String strategy = config.getFailureStrategy();
-        Instance<RabbitMQFailureHandler.Factory> failureHandlerFactory = failureHandlerFactories
-                .select(Identifier.Literal.of(strategy));
+        Instance<RabbitMQFailureHandler.Factory> failureHandlerFactory = CDIUtils.getInstanceById(failureHandlerFactories, strategy);
         if (failureHandlerFactory.isResolvable()) {
             return failureHandlerFactory.get().create(config, this);
         } else {
