@@ -3,6 +3,7 @@ package io.smallrye.reactive.messaging.rabbitmq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -110,7 +111,9 @@ public class LocalPropagationAckTest extends WeldTestBase {
     public void testIncomingChannelWithNackOnMessageContextReconsume() {
         addBeans(RabbitMQReconsumeLater.Factory.class);
         IncomingChannelWithAckOnMessageContext bean = runApplication(dataconfig()
-                .with("mp.messaging.incoming.data.failure-strategy", "reconsume-later"),
+                .with("mp.messaging.incoming.data.failure-strategy", "reconsume-later")
+                .with("mp.messaging.incoming.data.queue.x-queue-type", "quorum")
+                .with("mp.messaging.incoming.data.queue.x-delivery-limit", "1"),
                 IncomingChannelWithAckOnMessageContext.class);
         bean.setMapper(i -> {
             throw new RuntimeException("boom");
@@ -118,7 +121,7 @@ public class LocalPropagationAckTest extends WeldTestBase {
         produceIntegers();
 
         await().until(() -> bean.getResults().size() >= 10);
-        assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5);
+        assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5, 1, 2, 3, 4, 5);
     }
 
     @ApplicationScoped

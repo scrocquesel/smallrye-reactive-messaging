@@ -11,6 +11,7 @@ import java.util.concurrent.Flow;
 
 import io.smallrye.common.annotation.Identifier;
 import io.vertx.mutiny.rabbitmq.RabbitMQMessage;
+import io.vertx.rabbitmq.RabbitMQClient;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import org.eclipse.microprofile.config.Config;
@@ -18,18 +19,21 @@ import org.eclipse.microprofile.config.ConfigValue;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.eclipse.microprofile.config.spi.Converter;
 import org.eclipse.microprofile.reactive.messaging.Message;
+import org.eclipse.microprofile.reactive.messaging.Metadata;
 import org.eclipse.microprofile.reactive.messaging.OnOverflow;
 import org.eclipse.microprofile.reactive.messaging.spi.ConnectorFactory;
 
 import io.smallrye.mutiny.Multi;
-import io.smallrye.mutiny.Uni;
 import io.smallrye.reactive.messaging.EmitterConfiguration;
 import io.smallrye.reactive.messaging.annotations.EmitterFactoryFor;
 import io.smallrye.reactive.messaging.providers.extension.MutinyEmitterImpl;
+import io.smallrye.reactive.messaging.rabbitmq.ConnectionHolder;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMessage;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
+import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata.Builder;
 import io.smallrye.reactive.messaging.rabbitmq.RabbitMQConnector;
 import io.smallrye.reactive.messaging.rabbitmq.RabbitMQConnectorIncomingConfiguration;
+import io.vertx.core.json.JsonObject;
 import io.vertx.mutiny.core.Context;
 
 public class RabbitMQReconsumeLater implements RabbitMQFailureHandler {
@@ -37,26 +41,30 @@ public class RabbitMQReconsumeLater implements RabbitMQFailureHandler {
     @Identifier("reconsume-later")
     public static class Factory implements RabbitMQFailureHandler.Factory {
         @Override
-        public RabbitMQFailureHandler create(RabbitMQConnectorIncomingConfiguration config, RabbitMQConnector connector) {
+        public RabbitMQFailureHandler create(RabbitMQConnectorIncomingConfiguration config,
+                RabbitMQConnector connector) {
             return new RabbitMQReconsumeLater(connector, config);
         }
     }
 
     private MutinyEmitterImpl<Object> emitter;
 
+    private String channelName;
+
     public RabbitMQReconsumeLater(RabbitMQConnector connector, RabbitMQConnectorIncomingConfiguration ic) {
 
-        // create outgoing config for a delayed channel from the incoming channel configuration
+        // create outgoing config for a delayed channel from the incoming channel
+        // configuration
+        channelName = ic.getChannel() + "-reconsume";
         Map<String, Object> map = new HashMap<>();
-        map.put(ConnectorFactory.CHANNEL_NAME_ATTRIBUTE, ic.getChannel() + "-reconsume");
-        map.put("exchange.declare", "false");
-        map.put("queue.declare", "false");
-        map.put("default-ttl", "10000");
+        map.put(ConnectorFactory.CHANNEL_NAME_ATTRIBUTE, channelName);
+        map.put("exchange.name", "");
+
         Config config = merge(ic.config(), map);
         emitter = new MutinyEmitterImpl<>(new EmitterConfiguration() {
             @Override
             public String name() {
-                return ic.getChannel() + "-reconsume";
+                return channelName;
             }
 
             @Override
@@ -86,23 +94,48 @@ public class RabbitMQReconsumeLater implements RabbitMQFailureHandler {
         }, 10);
 
         Multi.createFrom().publisher(emitter.getPublisher())
-                .onItem()
-                .transformToUniAndConcatenate(m -> Uni.createFrom().item(m).onItem().delayIt().by(Duration.ofSeconds(1)))
                 .subscribe((Flow.Subscriber<? super Message<?>>) connector.getSubscriber(config));
+        
+
+        // establish queue
+        final var client = connector.getClient(channelName);
+        client.getDelegate().addConnectionEstablishedCallback(promise -> {
+            final JsonObject queueArgs = new JsonObject();
+            // deliver the message back to the original queue when the message expire
+            queueArgs.put("x-dead-letter-exchange", "");
+            queueArgs.put("x-dead-letter-routing-key", ic.getQueueName());
+            client.queueDeclare(channelName, true, false, false, queueArgs)
+                    // Ensure we create the queue to which messages are to be sent
+                    .subscribe().with((ignored) -> promise.complete(), promise::fail);
+        });
     }
 
     @Override
     public <V> CompletionStage<Void> handle(IncomingRabbitMQMessage<V> msg, Context context, Throwable reason) {
-        Message<?> message = msg.addMetadata(OutgoingRabbitMQMetadata.builder()
-                // TODO new outgoing message with ttl from msg
-                .build());
-        return emitter.sendMessage(message)
-                .runSubscriptionOn(context::runOnContext)
-                .invoke(x -> {
-                    RabbitMQMessage rabbitMQMessage = msg.getRabbitMQMessage();
-                    System.out.println("sent " + rabbitMQMessage.envelope().getExchange() + " " + rabbitMQMessage.body().toString());
-                })
-                .subscribeAsCompletionStage();
+
+        int attemptLeft = (int) msg.getHeaders().getOrDefault("x-attempt-left", 1);
+        if (attemptLeft == 0) {
+            // todo use a failure strategy ?
+            return ConnectionHolder.runOnContext(context, msg, m -> m.rejectMessage(reason));
+        } else {
+            Builder metadataBuilder = OutgoingRabbitMQMetadata.builder()
+                    .withExpiration("1000")
+                    .withRoutingKey(channelName);
+                    metadataBuilder.withHeader("x-attempt-left", --attemptLeft);
+
+            Message<?> message = Message.of(msg.getPayload(), Metadata.of(metadataBuilder
+                    .build()), () -> {
+                        System.out.println("ack ");
+                        // todo ack/auto-ack
+                        return ConnectionHolder.runOnContext(context, msg, IncomingRabbitMQMessage::acknowledgeMessage);
+                    }, e -> {
+                        System.out.println("nack ");
+                        return ConnectionHolder.runOnContext(context, msg, m -> m.rejectMessage(reason));
+                    });
+            return emitter.sendMessage(message)
+                    .runSubscriptionOn(context::runOnContext)
+                    .subscribeAsCompletionStage();
+        }
     }
 
     public static Config merge(Config passedCfg, Map<String, Object> mapCfg) {
@@ -119,7 +152,7 @@ public class RabbitMQReconsumeLater implements RabbitMQFailureHandler {
                 if (value == null) {
                     value = passedCfg.getOptionalValue(name, clazz).orElse(null);
                     if (value != null) {
-                        //noinspection unchecked
+                        // noinspection unchecked
                         return (T) value;
                     }
                 }
@@ -132,7 +165,7 @@ public class RabbitMQReconsumeLater implements RabbitMQFailureHandler {
                 }
 
                 if (clazz.isInstance(value)) {
-                    //noinspection unchecked
+                    // noinspection unchecked
                     return (T) value;
                 }
 
