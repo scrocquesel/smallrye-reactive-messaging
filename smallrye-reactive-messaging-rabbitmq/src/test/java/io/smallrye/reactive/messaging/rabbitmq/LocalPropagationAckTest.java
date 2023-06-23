@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.reactive.messaging.providers.locals.LocalContextMetadata;
+import io.smallrye.reactive.messaging.rabbitmq.fault.RabbitMQReconsumeLater;
 import io.smallrye.reactive.messaging.test.common.config.MapBasedConfig;
 import io.vertx.mutiny.core.Vertx;
 
@@ -103,6 +104,24 @@ public class LocalPropagationAckTest extends WeldTestBase {
 
         await().until(() -> bean.getResults().size() >= 5);
         assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5);
+    }
+
+    @Test
+    public void testIncomingChannelWithNackOnMessageContextReconsume() {
+        addBeans(RabbitMQReconsumeLater.Factory.class);
+        IncomingChannelWithAckOnMessageContext bean = runApplication(dataconfig()
+                .with("mp.messaging.incoming.data.failure-strategy", "reconsume-later")
+                .with("mp.messaging.incoming.data.auto-bind-dlq", "true")
+                .with("mp.messaging.incoming.data.dlx.declare", "true")
+                .with("mp.messaging.incoming.data.reconsume-queue.delivery-limit", "1"),
+                IncomingChannelWithAckOnMessageContext.class);
+        bean.setMapper(i -> {
+            throw new RuntimeException("boom");
+        });
+        produceIntegers();
+
+        await().until(() -> bean.getResults().size() >= 10);
+        assertThat(bean.getResults()).containsExactly(1, 2, 3, 4, 5, 1, 2, 3, 4, 5);
     }
 
     @ApplicationScoped

@@ -127,6 +127,17 @@ import io.vertx.rabbitmq.RabbitMQPublisherOptions;
 @ConnectorAttribute(name = "dead-letter-dlx", direction = INCOMING, description = "If specified, a DLX to assign to the DLQ. Relevant only if auto-bind-dlq is true", type = "string")
 @ConnectorAttribute(name = "dead-letter-dlx-routing-key", direction = INCOMING, description = "If specified, a dead letter routing key to assign to the DLQ. Relevant only if auto-bind-dlq is true", type = "string")
 
+// Reconsume Queues
+@ConnectorAttribute(name = "reconsume-queue.name", direction = INCOMING, description = "The reconsume queue to which failed messages are produced; if not supplied will default to the queue name with '.reconsume' appended", type = "string")
+@ConnectorAttribute(name = "reconsume-queue.durable", direction = INCOMING, description = "Whether the reconsume queue is durable", type = "boolean", defaultValue = "true")
+@ConnectorAttribute(name = "reconsume-queue.declare", direction = INCOMING, description = "Whether to declare the reconsume queue; set to false if these are expected to be set up independently", type = "boolean", defaultValue = "true")
+@ConnectorAttribute(name = "reconsume-queue.ttl", direction = INCOMING, description = "If specified, the time (ms) for which a message can remain in the reconsume queue before it is delivered back to the original queue", type = "long", defaultValue = "1000")
+@ConnectorAttribute(name = "reconsume-queue.x-queue-type", direction = INCOMING, description = "If automatically declare queue, we can choose different types of queue [quorum, classic, stream]", type = "string")
+@ConnectorAttribute(name = "reconsume-queue.x-queue-mode", direction = INCOMING, description = "If automatically declare queue, we can choose different modes of queue [lazy, default]", type = "string")
+@ConnectorAttribute(name = "reconsume-queue.delivery-limit", direction = INCOMING, description = "If specified, the message will be redelivered to original queue no more than the limit", type = "int")
+@ConnectorAttribute(name = "reconsume-queue.delivery-limit-name", direction = INCOMING, description = "The property used to keep track of number redelivery attempt", type = "String", defaultValue = "x-delivery-count")
+@ConnectorAttribute(name = "reconsume-queue.delivery-limit-failure-strategy", direction = INCOMING, description = "The failure strategy to apply when a RabbitMQ message reach the reconsume delivery limit. Accepted values are `fail`, `accept`, `reject` (default)", type = "string", defaultValue = "reject")
+
 // Message consumer
 @ConnectorAttribute(name = "failure-strategy", direction = INCOMING, description = "The failure strategy to apply when a RabbitMQ message is nacked. Accepted values are `fail`, `accept`, `reject` (default) or name of a bean", type = "string", defaultValue = "reject")
 @ConnectorAttribute(name = "broadcast", direction = INCOMING, description = "Whether the received RabbitMQ messages must be dispatched to multiple _subscribers_", type = "boolean", defaultValue = "false")
